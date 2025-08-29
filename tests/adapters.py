@@ -9,8 +9,11 @@ import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from collections import defaultdict
-import re
-
+import regex as re
+from tqdm import tqdm
+import multiprocessing as mp
+from multiprocessing import Manager
+from .utils import get_chunks, process_chunk
 
 def run_linear(
     d_in: int,
@@ -524,7 +527,7 @@ def run_load_checkpoint(
     src: str | os.PathLike | BinaryIO | IO[bytes],
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-):
+) -> int:
     """
     Given a serialized checkpoint (path or file-like object), restore the
     serialized state to the given model and optimizer.
@@ -595,38 +598,46 @@ def run_train_bpe(
     vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
     next_id = 256
 
-    for tokens in special_tokens:
-        value = tokens.encode(encoding="utf-8")
-        if not value in vocab.values():
+    for token in set(special_tokens):
+        value = token.encode("utf-8")
+        if value not in vocab.values():
             vocab[next_id] = value
             next_id += 1
 
     # step 2. Pre-tokenize
-    with open(input_path, mode="r", encoding="utf-8") as f:
-        text = f.read()
+    special_pattern = "|".join(map(re.escape, special_tokens))
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    full_pattern = f"({special_pattern})|({PAT})"
 
-    chunks = re.split("|".join(map(re.escape, special_tokens)), text)
-    pre_tokens_cnt = defaultdict(int)
+    num_processes = 32
+    with Manager() as manager:
+        shared_cnt = manager.dict()
+        pool = mp.Pool(processes=num_processes)
+        for chunk in get_chunks(input_path, num_processes):
+            pool.apply_async(
+                process_chunk,
+                args=(chunk, full_pattern, shared_cnt)
+            )
+        
+        pool.close()
+        pool.join()
 
-    to_bytes_tuple = lambda word: tuple([byte for byte in word.encode(encoding="utf-8")])
+        pre_tokens_cnt = defaultdict(int)
+        for key, val in shared_cnt.items():
+            pre_tokens_cnt[key] = val
 
-    PATTERN = PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
-    for chunk in chunks:
-        for m in re.finditer(PAT, chunk):
-            pre_tokens_cnt[to_bytes_tuple(m.group(0))] += 1
-
-    # step 3. Compute Merge
+    # step 3. Compute BPE Merge
     merges = []
-    for _ in range(vocab_size - len(vocab)):
+    target_size = vocab_size - len(vocab)
+    for _ in tqdm(range(target_size)):
         pair_cnt = defaultdict(int)
         for token, cnt in pre_tokens_cnt.items():
             for idx in range(len(token) - 1):
-                pair_cnt[token[idx : idx + 2]] += cnt
+                pair_cnt[token[idx:idx+2]] += cnt
         if not pair_cnt:
             break
         max_cnt = max(pair_cnt.values())
-        candidate_pair = [pair for pair, cnt in pair_cnt.items() if cnt == max_cnt]
+        candidate_pair = [p for p, c in pair_cnt.items() if c == max_cnt]
         best_pair = max(candidate_pair)
 
         a, b = best_pair
@@ -638,7 +649,7 @@ def run_train_bpe(
             new_token = []
             i = 0
             while i < len(token):
-                if i < len(token) - 1 and token[i] == a and token[i+1] == b:
+                if i < len(token)-1 and token[i] == a and token[i+1] == b:
                     new_token.append(a + b)
                     i += 2
                 else:
@@ -649,4 +660,3 @@ def run_train_bpe(
         merges.append((a, b))
     
     return vocab, merges
-        
