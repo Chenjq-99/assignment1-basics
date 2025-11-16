@@ -8,6 +8,8 @@ from jaxtyping import Float, Int
 import numpy.typing as npt
 import torch
 from torch import Tensor
+from collections import defaultdict
+import re
 
 
 
@@ -590,4 +592,62 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    raise NotImplementedError
+    # step 1. Initialize Vocabulary
+    vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
+    next_id = 256
+
+    for tokens in special_tokens:
+        value = tokens.encode(encoding="utf-8")
+        if not value in vocab.values():
+            vocab[next_id] = value
+            next_id += 1
+
+    # step 2. Pre-tokenize
+    with open(input_path, mode="r", encoding="utf-8") as f:
+        text = f.read()
+
+    chunks = re.split("|".join(map(re.escape, special_tokens)), text)
+    pre_tokens_cnt = defaultdict(int)
+
+    to_bytes_tuple = lambda word: tuple([byte for byte in word.encode(encoding="utf-8")])
+
+    PATTERN = PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+
+    for chunk in chunks:
+        for m in re.finditer(PAT, chunk):
+            pre_tokens_cnt[to_bytes_tuple(m.group(0))] += 1
+
+    # step 3. Compute Merge
+    merges = []
+    for _ in range(vocab_size - len(vocab)):
+        pair_cnt = defaultdict(int)
+        for token, cnt in pre_tokens_cnt.items():
+            for idx in range(len(token) - 1):
+                pair_cnt[token[idx : idx + 2]] += cnt
+        if not pair_cnt:
+            break
+        max_cnt = max(pair_cnt.values())
+        candidate_pair = [pair for pair, cnt in pair_cnt.items() if cnt == max_cnt]
+        best_pair = max(candidate_pair)
+
+        a, b = best_pair
+        vocab[next_id] = a + b
+        next_id += 1
+
+        new_pre_tokens_cnt = defaultdict(int)
+        for token, cnt in pre_tokens_cnt.items():
+            new_token = []
+            i = 0
+            while i < len(token):
+                if i < len(token) - 1 and token[i] == a and token[i+1] == b:
+                    new_token.append(a + b)
+                    i += 2
+                else:
+                    new_token.append(token[i])
+                    i += 1
+            new_pre_tokens_cnt[tuple(new_token)] += cnt
+        pre_tokens_cnt = new_pre_tokens_cnt
+        merges.append((a, b))
+    
+    return vocab, merges
+        
