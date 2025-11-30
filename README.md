@@ -1,3 +1,4 @@
+Key References：https://github.com/Christine8888/cs336-assignment1-basics/
 # CS336 Spring 2025 Assignment 1: Basics
 
 For a full description of the assignment, see the assignment handout at
