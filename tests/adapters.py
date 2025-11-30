@@ -564,7 +564,8 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    from cs336_basics.tokenizer import Tokenizer
+    return Tokenizer(vocab, merges, special_tokens)
 
 
 def run_train_bpe(
@@ -594,69 +595,6 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    # step 1. Initialize Vocabulary
-    vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
-    next_id = 256
-
-    for token in set(special_tokens):
-        value = token.encode("utf-8")
-        if value not in vocab.values():
-            vocab[next_id] = value
-            next_id += 1
-
-    # step 2. Pre-tokenize
-    special_pattern = "|".join(map(re.escape, special_tokens))
-    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-    full_pattern = f"({special_pattern})|({PAT})"
-
-    num_processes = 32
-    with Manager() as manager:
-        shared_cnt = manager.dict()
-        pool = mp.Pool(processes=num_processes)
-        for chunk in get_chunks(input_path, num_processes):
-            pool.apply_async(
-                process_chunk,
-                args=(chunk, full_pattern, shared_cnt)
-            )
-        
-        pool.close()
-        pool.join()
-
-        pre_tokens_cnt = defaultdict(int)
-        for key, val in shared_cnt.items():
-            pre_tokens_cnt[key] = val
-
-    # step 3. Compute BPE Merge
-    merges = []
-    target_size = vocab_size - len(vocab)
-    for _ in tqdm(range(target_size)):
-        pair_cnt = defaultdict(int)
-        for token, cnt in pre_tokens_cnt.items():
-            for idx in range(len(token) - 1):
-                pair_cnt[token[idx:idx+2]] += cnt
-        if not pair_cnt:
-            break
-        max_cnt = max(pair_cnt.values())
-        candidate_pair = [p for p, c in pair_cnt.items() if c == max_cnt]
-        best_pair = max(candidate_pair)
-
-        a, b = best_pair
-        vocab[next_id] = a + b
-        next_id += 1
-
-        new_pre_tokens_cnt = defaultdict(int)
-        for token, cnt in pre_tokens_cnt.items():
-            new_token = []
-            i = 0
-            while i < len(token):
-                if i < len(token)-1 and token[i] == a and token[i+1] == b:
-                    new_token.append(a + b)
-                    i += 2
-                else:
-                    new_token.append(token[i])
-                    i += 1
-            new_pre_tokens_cnt[tuple(new_token)] += cnt
-        pre_tokens_cnt = new_pre_tokens_cnt
-        merges.append((a, b))
-    
-    return vocab, merges
+    from cs336_basics.bpe import BPE
+    bpe = BPE(input_path, special_tokens)
+    return bpe.train(vocab_size)
