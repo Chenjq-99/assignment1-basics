@@ -3,6 +3,15 @@ from typing import Optional
 import torch
 import math
 
+OPTIMIZER_REGISTRY = {}
+
+def register_optimizer(name):
+    def decorator(cls):
+        OPTIMIZER_REGISTRY[name] = cls
+        return cls
+    return decorator
+
+@register_optimizer("SGD")
 class SGD(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3):
         if lr < 0:
@@ -25,10 +34,7 @@ class SGD(torch.optim.Optimizer):
         return loss
 
 
-import torch
-import math
-from typing import Optional
-
+@register_optimizer("AdamW")
 class AdamW(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-2):
         if lr < 0.0:
@@ -83,3 +89,12 @@ class AdamW(torch.optim.Optimizer):
                 state["t"] = t
 
         return loss
+def build_optimizer(
+    config: dict,
+    model: torch.nn.Module
+) -> torch.optim.Optimizer:
+    name = config["optimizer"]["name"]
+    cls = OPTIMIZER_REGISTRY.get(name)
+    if cls is None:
+        raise ValueError(f"Optimizer {name} not registered")
+    return cls(model.parameters(), **config["optimizer"]["kwargs"])

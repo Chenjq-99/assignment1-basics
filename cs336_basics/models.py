@@ -1,4 +1,12 @@
+import sys
 from .layers import *
+
+MODEL_REGISTRY = {}
+def register_model(name):
+    def decorator(cls):
+        MODEL_REGISTRY[name] = cls
+        return cls
+    return decorator
 
 class TransformerBlock(nn.Module):
     def __init__(self, d_model: int, num_heads: int, d_ff: int, rope: nn.Module=None, device=None, dtype=None):
@@ -16,7 +24,8 @@ class TransformerBlock(nn.Module):
         x = x + self.attn(self.ln1(x))
         x = x + self.ffn(self.ln2(x))
         return x
-
+    
+@register_model("TransformerLM")
 class TransformerLM(nn.Module):
     def __init__(
         self, 
@@ -44,5 +53,10 @@ class TransformerLM(nn.Module):
         x = self.lm_head(x)
 
         return x
-
-        
+    
+def build_model(config):
+    name = config["model"]["type"]
+    cls = MODEL_REGISTRY.get(name)
+    if cls is None:
+        raise ValueError(f"Model {name} not registered")
+    return cls(**config["model"]["kwargs"])

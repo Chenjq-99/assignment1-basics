@@ -14,7 +14,7 @@ from tqdm import tqdm
 import multiprocessing as mp
 from multiprocessing import Manager
 from cs336_basics.layers import *
-from cs336_basics.blocks import *
+from cs336_basics.models import *
 from cs336_basics.losses import *
 from cs336_basics.optimizer import *
 from cs336_basics.utils import *
@@ -310,7 +310,7 @@ def run_transformer_block(
         running the Transformer block on the input features while using RoPE.
     """
     from cs336_basics.layers import RotaryPositionalEmbedding
-    from cs336_basics.blocks import TransformerBlock
+    from cs336_basics.models import TransformerBlock
     rope = RotaryPositionalEmbedding(theta, d_model // num_heads, max_seq_len)
     transformer_block = TransformerBlock(d_model, num_heads, d_ff, rope)
     state_dict = {
@@ -407,7 +407,7 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    from cs336_basics.blocks import TransformerLM
+    from cs336_basics.models import TransformerLM
     lm = TransformerLM(
         vocab_size=vocab_size,
         context_length=context_length,
@@ -498,7 +498,7 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    return get_batch(dataset, batch_size, context_length, device)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -598,7 +598,7 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    save_checkpoint(model, optimizer, iteration, out)
 
 
 def run_load_checkpoint(
@@ -619,7 +619,7 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    return load_checkpoint(src, model, optimizer)
 
 
 def get_tokenizer(
